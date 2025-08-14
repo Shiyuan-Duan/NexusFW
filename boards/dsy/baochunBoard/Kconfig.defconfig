@@ -1,0 +1,6 @@
+if BOARD_BAOCHUNBOARD
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_BAOCHUNBOARD

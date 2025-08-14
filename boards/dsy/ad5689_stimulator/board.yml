@@ -1,0 +1,5 @@
+board:
+  name: ad5689_stimulator
+  vendor: dsy
+  socs:
+    - name: nrf52840

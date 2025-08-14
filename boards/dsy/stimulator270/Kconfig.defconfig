@@ -1,0 +1,6 @@
+if BOARD_STIMULATOR270
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_STIMULATOR270

@@ -1,0 +1,32 @@
+# Copyright (c) 2025, Your‑Org
+# SPDX-License-Identifier: Apache-2.0
+
+description: >
+  dsy AD5689 nanoDAC+
+  (dual 16‑bit voltage‑output DAC controlled over SPI)
+
+compatible: "dsy,ad5689"
+
+include: spi-device.yaml
+
+properties:
+  ldac-gpios:
+    type: phandle-array
+    required: false
+    description: Optional LDAC pin (active‑low).
+
+  clr-gpios:
+    type: phandle-array
+    required: false
+    description: Optional CLR pin (active‑low) that drives the outputs
+      to the clear code.
+
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: Optional hardware RESET pin (active‑low).  If omitted,
+      the driver issues a software RESET (command 0x07).
+
+  spi-max-frequency:
+    default: 5000000          # conservative; part allows up to 30 MHz
+    description: Maximum SPI clock frequency in Hz.

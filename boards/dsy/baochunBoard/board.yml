@@ -1,0 +1,5 @@
+board:
+  name: baochunBoard
+  vendor: dsy
+  socs:
+    - name: nrf52840
