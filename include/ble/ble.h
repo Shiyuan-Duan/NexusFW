@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
@@ -18,7 +19,14 @@ extern "C" {
 
 
 
-int t_ble_adv_start(void);   
+/* BLE advertising thread entry */
+void ble_adv_thread_entry(void *a, void *b, void *c);
+
+/* BLE watchdog/health indicator.
+ * Returns true when BLE stack is enabled and either advertising or connected,
+ * and keepalive checks are succeeding.
+ */
+bool ble_is_healthy(void);
 
 
 

@@ -1,0 +1,6 @@
+if BOARD_GFET
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_GFET

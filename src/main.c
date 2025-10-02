@@ -1,42 +1,57 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/gpio.h>
 
-#include "ble.h"
+#include "ble_adv_core.h"
 #include "ad5689.h"
 #include "ble_ad5689_srv.h"
 LOG_MODULE_REGISTER(app, CONFIG_LOG_DEFAULT_LEVEL);
 
-/* ── BLE advertising thread (unchanged) ───────────────────────────────── */
-K_THREAD_DEFINE(ble_t, 1024, t_ble_adv_start, NULL, NULL, NULL,
-		1 /* prio */, 0, 0);
+/* BLE advertising thread is defined in the app-specific module. */
 
-/* 1 kHz square wave params */
-#define SQUARE_HZ        1000
-#define HALF_PERIOD_US   (1000000 / (2 * SQUARE_HZ))  /* 500 µs */
-
-/* ── Application entry point ──────────────────────────────────────────── */
 int main(void)
 {
-	const struct device *dac = DEVICE_DT_GET_ONE(dsy_ad5689);
+    /* Configure P0.23 as indicator LED (active-low):
+     * - Pull the pin low for 100 ms (LED on)
+     * - Then release to Hi-Z for 900 ms (LED off)
+     * Use k_sleep to avoid starving lower-priority threads.
+     */
+    // const struct device *gpio0 = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+    // const uint32_t pin = 23U; /* P0.23 */
 
-	if (!device_is_ready(dac)) {
-		LOG_ERR("AD5689 device not ready");
-		return -ENODEV;
-	}
+    // if (!device_is_ready(gpio0)) {
+    //     LOG_ERR("gpio0 not ready");
+    //     return 0;
+    // }
 
-	LOG_INF("Starting 1 kHz square wave on AD5689 channel A");
+    /* Ensure LED is off initially by setting Hi-Z (input). */
+    // (void)gpio_pin_configure(gpio0, pin, GPIO_INPUT);
 
-	while (true) {
-		/* high level (full-scale) */
-		ad5689_write(dac, 0 /* ch A */, 0xFFFF);
-		k_sleep(K_USEC(HALF_PERIOD_US));
+    while (1) {
+        printk("Running...\n");
+        // bool healthy = ble_is_healthy();
 
-		/* low level (zero) */
-		ad5689_write(dac, 0 /* ch A */, 0x0000);
-		k_sleep(K_USEC(HALF_PERIOD_US));
-	}
+        // if (healthy) {
+        //     /* Normal heartbeat: 100 ms low, 900 ms Hi-Z */
+        //     (void)gpio_pin_configure(gpio0, pin, GPIO_OUTPUT);
+        //     (void)gpio_pin_set(gpio0, pin, 0);
+        //     k_sleep(K_MSEC(100));
 
-	/* never reached */
-	return 0;
-}
+        //     (void)gpio_pin_configure(gpio0, pin, GPIO_INPUT);
+        //     k_sleep(K_MSEC(900));
+        // } else {
+        //     /* BLE unhealthy: double-flash pattern within ~1 s window */
+        //     for (int i = 0; i < 2; ++i) {
+        //         (void)gpio_pin_configure(gpio0, pin, GPIO_OUTPUT);
+        //         (void)gpio_pin_set(gpio0, pin, 0);
+        //         k_sleep(K_MSEC(100));
+
+        //         (void)gpio_pin_configure(gpio0, pin, GPIO_INPUT);
+        //         k_sleep(K_MSEC(100));
+        //     }
+        //     /* Remaining off time */
+            k_sleep(K_MSEC(1000));
+        }
+    }
+

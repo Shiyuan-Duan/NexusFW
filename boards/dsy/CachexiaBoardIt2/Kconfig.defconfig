@@ -1,0 +1,6 @@
+if BOARD_CACHEXIABOARDIT2
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_CACHEXIABOARDIT2

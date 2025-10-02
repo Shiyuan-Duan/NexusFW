@@ -133,12 +133,12 @@ static int ad5689_init(const struct device *dev)
 	k_mutex_init(&data->lock);
 
 	// /* hardware reset pulse if pin provided */
-	// if (cfg->reset.port) {
-	// 	gpio_pin_set_dt(&cfg->reset, 0);
-	// 	k_sleep(K_MSEC(1));
-	// 	gpio_pin_set_dt(&cfg->reset, 1);
-	// 	k_sleep(K_MSEC(1));
-	// }
+	if (cfg->reset.port) {
+		gpio_pin_set_dt(&cfg->reset, 1);
+		k_sleep(K_MSEC(1));
+		gpio_pin_set_dt(&cfg->reset, 0);
+		k_sleep(K_MSEC(1));
+	}
     printk("Init DAC\n");
 	return ad5689_soft_reset(dev);
 }

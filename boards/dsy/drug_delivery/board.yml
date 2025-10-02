@@ -1,0 +1,5 @@
+board:
+  name: drug_delivery
+  vendor: dsy
+  socs:
+    - name: nrf52832

@@ -1,0 +1,24 @@
+description: |
+  dsy AD5941 Analog Front End (AFE)
+  SPI-controlled impedance/voltammetry AFE used for electrochemical sensing.
+
+compatible: "dsy,ad5941"
+
+include: spi-device.yaml
+
+properties:
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: Optional RESET pin (active-low)
+
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: Optional interrupt pin from AD5941 to MCU
+
+  spi-max-frequency:
+    type: int
+    description: Maximum SPI clock in Hz
+    default: 4000000
+

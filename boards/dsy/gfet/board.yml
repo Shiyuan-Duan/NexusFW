@@ -1,0 +1,5 @@
+board:
+  name: gfet
+  vendor: dsy
+  socs:
+    - name: nrf52840

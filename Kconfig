@@ -1,0 +1,40 @@
+
+# Give the app a menu title (optional)
+mainmenu "NexusFW"
+
+# CRITICAL: pull in Zephyr + NCS Kconfig tree
+source "Kconfig.zephyr"
+menu "Application configuration"
+
+choice APP_VARIANT
+    prompt "Select application variant"
+    default APP_STIM_DEMO
+
+config APP_CACHEXIA
+	bool "Cachexia application"
+	help
+	  Build the Cachexia application variant which provides the
+	  Cachexia BLE service and application thread.
+
+config APP_DRUG_DELIVERY
+	bool "Drug delivery application"
+	help
+	  Build the Drug Delivery application variant which exposes
+	  5 on/off BLE characteristics that directly control GPIO pins
+	  P0.28, P0.29, P0.30, P0.25, and P0.31.
+
+config APP_STIM_DEMO
+    bool "Stim demo application"
+    help
+      Build the AD5689 demo variant with the dual-DAC BLE service.
+
+config APP_GFET_MEASURE
+    bool "Graphene FET measurement application"
+    help
+      Build the Graphene FET measurement application which uses the
+      AD5941 AFE (via SPI) together with the AD5689 DAC to bias the
+      device under test and stream measurements over BLE notifications.
+
+endchoice
+
+endmenu
