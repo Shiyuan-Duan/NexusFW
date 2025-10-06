@@ -1,5 +1,6 @@
 /* Zephyr driver for AD5941 — datasheet-accurate SPI (2-transaction) + Table 14 init
  * + debug snapshot printing right before/after the SINC2DAT read
+ * + FAST FILTERED MODE: bypass Sinc3, keep Sinc2 (OSR=22) for quick, filtered updates
  *
  * 外部 API 名称保持不变：
  *  - ad5941_reg_read / ad5941_reg_write
@@ -12,6 +13,7 @@
  *  4) 明确 16/32bit 访问；CHIPID 等 16 位专用分支
  *  5) Sinc2 路径读数前轮询 INTCFLAG1.FLAG2
  *  6) 在读取前后 printk 关键寄存器快照（用于定位问题）
+ *  7) 过滤加速：Sinc3BYP=1，Sinc2 OSR=22（最低），LPFBYPEN=0 → Sinc2 写入 SINC2DAT
  */
 
 #define DT_DRV_COMPAT dsy_ad5941
@@ -61,7 +63,11 @@ LOG_MODULE_REGISTER(ad5941, CONFIG_LOG_DEFAULT_LEVEL);
 #define AFECON_ADCEN         BIT(7)
 #define AFECON_SINC2EN       BIT(16)   /* 50/60 Hz notch (Sinc2) enable */
 
-#define ADCFILTERCON_LPFBYPEN BIT(4)   /* 0 => write notch result to SINC2DAT */
+/* ADCFILTERCON bits for fast filtered mode */
+#define ADCFILTERCON_LPFBYPEN         BIT(4)          /* 0 => write Sinc2 output to SINC2DAT */
+#define ADCFILTERCON_SINC3BYP         BIT(6)          /* 1 => bypass Sinc3 */
+#define ADCFILTERCON_SINC2OSR_MASK    (0xFu << 8)     /* Sinc2 OSR field */
+#define ADCFILTERCON_SINC2OSR_22      (0u   << 8)     /* lowest OSR => fastest Sinc2 */
 
 /* ADC MUX codes */
 #define ADCCON_MUXP_LPTIA_P  (0b100001)   /* [5:0] */
@@ -84,6 +90,34 @@ LOG_MODULE_REGISTER(ad5941, CONFIG_LOG_DEFAULT_LEVEL);
 #define AD5941_CMD_SETADDR   0x20
 #define AD5941_CMD_WRITEREG  0x2D
 #define AD5941_CMD_READREG   0x6D
+#define TIAGAIN_CODE_200     (0b00001u << 5)
+#define TIAGAIN_CODE_1K      (0b00010u << 5)
+#define TIAGAIN_CODE_2K      (0b00011u << 5)
+#define TIAGAIN_CODE_3K      (0b00100u << 5)
+#define TIAGAIN_CODE_4K      (0b00101u << 5)
+#define TIAGAIN_CODE_6K      (0b00110u << 5)
+#define TIAGAIN_CODE_8K      (0b00111u << 5)
+#define TIAGAIN_CODE_10K     (0b01000u << 5)  /* default */
+#define TIAGAIN_CODE_12K     (0b01001u << 5)
+#define TIAGAIN_CODE_16K     (0b01010u << 5)
+#define TIAGAIN_CODE_20K     (0b01011u << 5)
+#define TIAGAIN_CODE_24K     (0b01100u << 5)
+#define TIAGAIN_CODE_30K     (0b01101u << 5)
+#define TIAGAIN_CODE_32K     (0b01110u << 5)
+#define TIAGAIN_CODE_40K     (0b01111u << 5)
+#define TIAGAIN_CODE_48K     (0b10000u << 5)
+#define TIAGAIN_CODE_64K     (0b10001u << 5)
+#define TIAGAIN_CODE_85K     (0b10010u << 5)
+#define TIAGAIN_CODE_96K     (0b10011u << 5)
+#define TIAGAIN_CODE_100K    (0b10100u << 5)
+#define TIAGAIN_CODE_120K    (0b10101u << 5)
+#define TIAGAIN_CODE_128K    (0b10110u << 5)
+#define TIAGAIN_CODE_160K    (0b10111u << 5)
+#define TIAGAIN_CODE_196K    (0b11000u << 5)
+#define TIAGAIN_CODE_256K    (0b11001u << 5)
+#define TIAGAIN_CODE_512K    (0b11010u << 5)
+#define TIAGAIN_CODE_OPEN    (0b00000u << 5)  /* disconnect RTIA */
+
 
 /* --------- Device config/data --------- */
 struct ad5941_config {
@@ -289,33 +323,58 @@ static int lpdac_route_transfer(const struct device *dev)
 static int lptia_cfg_transfer(const struct device *dev, uint32_t rtia_ohm)
 {
     (void)ad5941_reg_write(dev, REG_LPTIASW0, 0x0000302Cu);
+    uint32_t tiarf = (0b111u << 13);  /* 1 MΩ LPF per datasheet */
+    uint32_t tiarl = (0b111u << 10);  /* RLOAD = 0 Ω (recommended unless needed) */
 
-    uint32_t tiarf = (0b111u << 13);  /* LPF 1M */
-    uint32_t tiarl = (0b000u << 10);  /* RLOAD=0 */
-    uint32_t tiagain;
+    uint32_t tiagain = TIAGAIN_CODE_10K; /* default */
     switch (rtia_ohm) {
-        case 200:    tiagain = (0b00001u << 5); break;
-        case 1000:   tiagain = (0b00010u << 5); break;
-        case 10000:  tiagain = (0b00011u << 5); break;
-        case 20000:  tiagain = (0b00100u << 5); break;
-        case 40000:  tiagain = (0b00101u << 5); break;
-        default:     tiagain = (0b00011u << 5); rtia_ohm = 10000; break;
+        case 200:   tiagain = TIAGAIN_CODE_200;  break;
+        case 1000:  tiagain = TIAGAIN_CODE_1K;   break;
+        case 2000:  tiagain = TIAGAIN_CODE_2K;   break;
+        case 3000:  tiagain = TIAGAIN_CODE_3K;   break;
+        case 4000:  tiagain = TIAGAIN_CODE_4K;   break;
+        case 6000:  tiagain = TIAGAIN_CODE_6K;   break;
+        case 8000:  tiagain = TIAGAIN_CODE_8K;   break;
+        case 10000: tiagain = TIAGAIN_CODE_10K;  break; /* default */
+        case 12000: tiagain = TIAGAIN_CODE_12K;  break;
+        case 16000: tiagain = TIAGAIN_CODE_16K;  break;
+        case 20000: tiagain = TIAGAIN_CODE_20K;  break;
+        case 24000: tiagain = TIAGAIN_CODE_24K;  break;
+        case 30000: tiagain = TIAGAIN_CODE_30K;  break;
+        case 32000: tiagain = TIAGAIN_CODE_32K;  break;
+        case 40000: tiagain = TIAGAIN_CODE_40K;  break;
+        case 48000: tiagain = TIAGAIN_CODE_48K;  break;
+        case 64000: tiagain = TIAGAIN_CODE_64K;  break;
+        case 85000: tiagain = TIAGAIN_CODE_85K;  break;
+        case 96000: tiagain = TIAGAIN_CODE_96K;  break;
+        case 100000:tiagain = TIAGAIN_CODE_100K; break;
+        case 120000:tiagain = TIAGAIN_CODE_120K; break;
+        case 128000:tiagain = TIAGAIN_CODE_128K; break;
+        case 160000:tiagain = TIAGAIN_CODE_160K; break;
+        case 196000:tiagain = TIAGAIN_CODE_196K; break;
+        case 256000:tiagain = TIAGAIN_CODE_256K; break;
+        case 512000:tiagain = TIAGAIN_CODE_512K; break;
+        default:    tiagain = TIAGAIN_CODE_10K;  break; /* fallback */
     }
-    uint32_t lptia = tiarf | tiarl | tiagain; /* power bits 0 = on */
+
+    uint32_t lptia = tiarf | tiarl | tiagain;   /* power bits 0 = on */
     return ad5941_reg_write(dev, REG_LPTIACON0, lptia);
 }
+
+/* FAST FILTERED MODE: bypass Sinc3, keep Sinc2; OSR=22 (fastest), LPFBYPEN=0 */
 static int adc_cfg_lptia(const struct device *dev)
 {
-    (void)ad5941_reg_write(dev, REG_ADCBUFCON, 0x005F3D04u);
+    (void)ad5941_reg_write(dev, REG_ADCBUFCON, 0x005F3D04u); /* LP preset */
     uint32_t adccfg = ADCCON_GNPGA_1X
                     | ((uint32_t)ADCCON_MUXN_LPTIA_N << 8)
                     | ((uint32_t)ADCCON_MUXP_LPTIA_P);
     (void)ad5941_reg_write(dev, REG_ADCCON, adccfg);
 
-    /* Ensure notch path writes to SINC2DAT: LPFBYPEN=0 */
     uint32_t fcfg = 0;
     (void)ad5941_reg_read(dev, REG_ADCFILTERCON, &fcfg);
-    fcfg &= ~ADCFILTERCON_LPFBYPEN;
+    fcfg |=  ADCFILTERCON_SINC3BYP;                        /* bypass Sinc3 */
+    fcfg &= ~ADCFILTERCON_LPFBYPEN;                       /* Sinc2 writes to SINC2DAT */
+    fcfg = (fcfg & ~ADCFILTERCON_SINC2OSR_MASK) | ADCFILTERCON_SINC2OSR_22; /* OSR=22 */
     (void)ad5941_reg_write(dev, REG_ADCFILTERCON, fcfg);
     return 0;
 }
@@ -369,7 +428,7 @@ static int api_set_vgs(const struct device *dev, int32_t mv)
     (void)lpdac_cfg_transfer(dev);
     (void)lpdac_route_transfer(dev);
 
-    uint32_t vzero_mv = d->vzero_mv ? (uint32_t)d->vzero_mv : 1100u;
+    uint32_t vzero_mv = d->vzero_mv ? (uint32_t)d->vzero_mv : 30u;
     uint8_t  vzero6   = vzero_code_from_mV(vzero_mv);
     uint16_t vbias12  = vbias_code_from_mV((uint32_t)mv);
 
@@ -394,6 +453,16 @@ static int api_lptia_cfg(const struct device *dev, int32_t vzero_mV, uint32_t rt
     (void)lpdac_route_transfer(dev);
     (void)lptia_cfg_transfer(dev, rtia_ohm);
     (void)adc_cfg_lptia(dev);
+    // reg_update(dev, REG_LPTIASW0, BIT(10), BIT(10));  /* SW10 = 1 */
+    /* ---- 读回 LPTIACON0[9:5]，同步软件分母并打印 ---- */
+    uint32_t v=0; ad5941_reg_read(dev, REG_LPTIACON0, &v);
+    uint32_t code = (v>>5) & 0x1F;
+    static const uint16_t rtia_tbl[] = {0,200,1000,2000,3000,4000,6000,8000,10000};
+    uint32_t rtia_hw = (code<=8)? rtia_tbl[code] : 0;
+    if (rtia_hw) { d->rtia_ohm = rtia_hw; }
+    printk("AD5941[LPTIA] TIAGAIN code=0x%02X -> HW=%luΩ, SW=%luΩ\n",
+        (unsigned)code, (unsigned long)rtia_hw, (unsigned long)rtia_ohm);
+
 
     uint32_t cur; (void)ad5941_reg_read(dev, REG_LPDACDAT0, &cur);
     uint8_t vzero6 = vzero_code_from_mV((uint32_t)vzero_mV);
@@ -418,31 +487,43 @@ static int api_read_current(const struct device *dev, int32_t *nA)
     uint32_t rpt = (1u << 0) | (1u << 4);
     (void)ad5941_reg_write(dev, REG_REPEATADCCNV, rpt);
 
-    /* Poll “Sinc2 filter result ready” (FLAG2) and clear with INTCCLR (W1C) */
+    /* Poll “Sinc2 filter result ready” (FLAG2) and clear with INTCCLR (W1C).
+     * With OSR=22 and Sinc3 bypassed, ready latency is very small. */
     (void)ad5941_reg_write(dev, REG_INTCCLR, INTCFLAG_SINC2_RDY); /* clear stale */
     uint32_t flags = 0;
-    for (uint32_t tries = 0; tries < 2000; ++tries) { /* ~40 ms safety timeout */
+    /* Short, tight poll (max ~5 ms) since Sinc2 is now fast */
+    for (uint32_t tries = 0; tries < 250; ++tries) { /* 250 * 20us = 5 ms */
         (void)ad5941_reg_read(dev, REG_INTCFLAG1, &flags);
         if (flags & INTCFLAG_SINC2_RDY) break;
         k_busy_wait(20); /* ~20 us backoff */
     }
-    /* Dump state right before the SINC2DAT read */
-    ad5941_dbg_dump(dev, "BEFORE_READ");
     (void)ad5941_reg_write(dev, REG_INTCCLR, INTCFLAG_SINC2_RDY); /* ack */
+    ////
+    uint32_t code32 = 0; (void)ad5941_reg_read(dev, REG_SINC2DAT, &code32);
+    uint16_t u = (uint16_t)(code32 & 0xFFFF);
+    const int64_t vref_uV = 1820000LL;               /* µV */
+    const int64_t rtia    = (int64_t)(d->rtia_ohm ? d->rtia_ohm : 1);
+    int32_t code = (int32_t)u - 32768;               /* [-32768, +32767] */
+    int64_t num  = (int64_t)code * vref_uV * 1000LL; /* code * Vref(µV) * 1000 -> nV*code */
+    int64_t den  = 32768LL * rtia;
+    if (num >= 0) num += den/2; else num -= den/2;   /* round to nearest */
+    *nA = (int32_t)(num / den); 
 
-    uint32_t code; (void)ad5941_reg_read(dev, REG_SINC2DAT, &code);
-    uint16_t adc = (uint16_t)(code & 0xFFFFu);
 
-    /* Also show what we actually read */
-    printk("AD5941[AFTER_READ] SINC2DAT=0x%08X (adc16=0x%04X)\n",
-           (unsigned)code, (unsigned)adc);
-    uint32_t raw; (void)ad5941_reg_read(dev, REG_ADCDAT, &raw);
-    printk("AD5941[AFTER_READ] ADCDAT  =0x%08X (raw16=0x%04X)\n",
-           (unsigned)raw, (unsigned)(raw & 0xFFFF));
-
-    int32_t vmV = (int32_t)((uint64_t)adc * ADC_INT_VREF_mV / 65535u);
-    int32_t inA = (d->rtia_ohm ? (int32_t)((int64_t)vmV * 1000 / (int32_t)d->rtia_ohm) : 0); /* nA */
-    *nA = inA;
+    ////
+    // uint32_t code; (void)ad5941_reg_read(dev, REG_SINC2DAT, &code);
+    
+    // uint16_t u = (uint16_t)(code & 0xFFFFu);
+    // static bool once=false;
+    // if (!once) {
+    //     printk("raw u16=0x%04X (signed=%d)\n", u, (int16_t)u);
+    //     once=true;
+    // }
+    // int32_t signed_code = (int32_t)u - 32768; /* 0x8000 为 0V */
+    // int32_t vmV = (int32_t)((int64_t)signed_code * ADC_INT_VREF_mV / 32768);
+    // int32_t inA_uA = d->rtia_ohm ? (int32_t)((int64_t)vmV * 1000 / (int32_t)d->rtia_ohm) : 0; /* μA */
+    // *nA = inA_uA; /* 变量名叫 nA，但这里数值是 μA；要真 nA 再乘 1000 */
+    ///
 
     k_mutex_unlock(&d->lock);
     return 0;
@@ -473,8 +554,8 @@ static int ad5941_init(const struct device *dev)
 
     k_mutex_init(&data->lock);
     /* sane defaults so first read is not forced to 0 by rtia_ohm==0 */
-    data->vzero_mv = 1100;
-    data->rtia_ohm = 10000;
+    data->vzero_mv = 100;
+    data->rtia_ohm = 200;
 
     api_reset(dev);
 

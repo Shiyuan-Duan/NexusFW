@@ -17,8 +17,8 @@ static atomic_t running = ATOMIC_INIT(0);
 static uint8_t ctrl_cached; /* mirrors last written control value for READ back */
 static struct gfet_cfg g_cfg = {
     .v_start_mV = 200,
-    .v_stop_mV = 800,
-    .v_step_mV = 20,
+    .v_stop_mV = 1600,
+    .v_step_mV = 5,
     .dwell_ms = 50,
     .avg_N = 4,
 };
