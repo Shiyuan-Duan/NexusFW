@@ -1,0 +1,6 @@
+if BOARD_CACHEXIAIT3
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_CACHEXIAIT3

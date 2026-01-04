@@ -1,4 +1,5 @@
 /*  ble_cachexia_srv.h — BLE service for cachexia stimulation control */
+//ble_cachexia_srv.h
 #pragma once
 
 #include <zephyr/bluetooth/uuid.h>

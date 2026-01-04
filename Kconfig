@@ -34,6 +34,23 @@ config APP_GFET_MEASURE
       Build the Graphene FET measurement application which uses the
       AD5941 AFE (via SPI) together with the AD5689 DAC to bias the
       device under test and stream measurements over BLE notifications.
+config APP_CACHEXIA_CURRENT_DEVICE
+    bool "Current source version of cachexia stimulator"
+    help
+      Really? You need help? Like how did you even trigger this? How is this even helpful?
+
+config APP_EXG_DEVICE
+    bool "EXG Device"
+    help
+      Really? You need help? Like how did you even trigger this? How is this even helpful?
+config APP_MECHANICAL_SENSOR
+    bool "Dual MLX Mechanical Sensor"
+    help
+      Dual MLX Mechanical Sensor
+config APP_MLX_DEMO
+    bool "MLX Demo"
+    help
+        Demo app for mlx90393
 
 endchoice
 

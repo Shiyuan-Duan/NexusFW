@@ -4,14 +4,16 @@
 #include <zephyr/drivers/gpio.h>
 
 #include "ble_adv_core.h"
-#include "ad5689.h"
-#include "ble_ad5689_srv.h"
+// #include "ad5689.h"
+// #include "ble_ad5689_srv.h"
+#include "mlx90393.h"
 LOG_MODULE_REGISTER(app, CONFIG_LOG_DEFAULT_LEVEL);
 
 /* BLE advertising thread is defined in the app-specific module. */
 
 int main(void)
 {
+    /* Quick sanity: confirm the MLX90393 device instance is ready */
     /* Configure P0.23 as indicator LED (active-low):
      * - Pull the pin low for 100 ms (LED on)
      * - Then release to Hi-Z for 900 ms (LED off)
@@ -54,4 +56,3 @@ int main(void)
             k_sleep(K_MSEC(1000));
         }
     }
-

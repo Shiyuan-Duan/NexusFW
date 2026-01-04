@@ -1,0 +1,72 @@
+# Copyright (c) 2025, Your‑Org
+# SPDX-License-Identifier: Apache-2.0
+
+description: >
+  dsy MAX30001 ultra-low-power biopotential (BioV/ECG) + bioimpedance (BioZ) AFE
+  (SPI interface). This binding is for a custom Zephyr driver API (not the generic sensor subsystem).
+
+compatible: "dsy,max30001"
+
+include: spi-device.yaml
+
+properties:
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional INTB pin (active-low interrupt). If wired, app/driver can use it
+      as a wake source for FIFO servicing. Pull-up required if used (open-drain modes exist).
+
+  int2-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional INT2B pin (active-low second interrupt output). Pull-up required if used.
+
+  fmstr:
+    type: int
+    default: 0
+    enum: [0, 1, 2, 3]
+    description: >
+      CNFG_GEN.FMSTR[1:0] master frequency select.
+      0: ~32.768kHz, 1: ~32.000kHz (500Hz progression), 2: ~32.000kHz (200Hz progression),
+      3: ~31.968kHz.
+
+  ecg-rate:
+    type: int
+    default: 2
+    enum: [0, 1, 2, 3]
+    description: >
+      CNFG_ECG.ECG_RATE[1:0] (raw code). Typical for FMSTR=0:
+      0=512sps, 1=256sps, 2=128sps. (See datasheet for other FMSTR mappings.)
+
+  bioz-rate:
+    type: int
+    default: 0
+    enum: [0, 1]
+    description: >
+      CNFG_BIOZ.BIOZ_RATE (raw bit). Typical for FMSTR=0:
+      0=64sps, 1=32sps. (See datasheet for other FMSTR mappings.)
+
+  bioz-cgmag:
+    type: int
+    default: 3
+    enum: [0, 1, 2, 3, 4, 5, 6, 7]
+    description: >
+      CNFG_BIOZ.BIOZ_CGMAG[2:0] current generator magnitude:
+      0=Off, 1=8uA, 2=16uA, 3=32uA, 4=48uA, 5=64uA, 6=80uA, 7=96uA.
+
+  bioz-fcgen:
+    type: int
+    default: 8
+    enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    description: >
+      CNFG_BIOZ.BIOZ_FCGEN[3:0] current generator modulation frequency selector.
+      8 means fMSTR/64 (~500Hz when FMSTR=0).
+
+  enable-rbias-ecg:
+    type: boolean
+    required: false
+    description: >
+      If present, enable resistive lead-bias on ECG inputs:
+      EN_RBIAS=01, RBIASV=01 (100M), RBIASP/RBIASN=1.

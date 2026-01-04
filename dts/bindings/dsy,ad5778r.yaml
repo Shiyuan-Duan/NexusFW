@@ -1,0 +1,80 @@
+# Copyright (c) 2025, Your‑Org
+# SPDX-License-Identifier: Apache-2.0
+
+description: >
+  dsy AD5778R SoftSpan current-source DAC
+  (dual 16‑bit current-source output DAC controlled over SPI)
+
+compatible: "dsy,ad5778r"
+
+include: spi-device.yaml
+
+properties:
+  ldac-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional LDAC pin (active‑low). If CS/LD is high, a falling edge on LDAC
+      updates all DAC registers from their input registers. If not used, tie LDAC to IOVCC.
+
+  clr-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional CLR pin (active‑low). Level-triggered asynchronous clear that resets
+      outputs to high‑Z / zero-scale behavior and clears control registers. If not used, tie to IOVCC.
+
+  tgp-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional TGP pin (toggle clock input). Used for A/B toggle via external logic.
+      If toggle operations are done through software, datasheet recommends tying TGP to IOVCC.
+      If toggle is unused, tie TGP to GND.
+
+  tgp-default-high:
+    type: boolean
+    required: false
+    description: >
+      If present and tgp-gpios is provided, the driver may drive TGP high at init
+      (helpful for software-controlled toggle use cases).
+
+  fault-gpios:
+    type: phandle-array
+    required: false
+    description: >
+      Optional FAULT pin (open-drain, active-low). If wired to MCU, can be used as an interrupt source.
+      A pull-up resistor is required.
+
+  sdo-readback:
+    type: boolean
+    required: false
+    description: >
+      If present, driver uses SPI transceive to sample the status/fault byte on SDO
+      during transactions. Requires SDO(MISO) wired to the SPI controller.
+
+  external-reference:
+    type: boolean
+    required: false
+    description: >
+      Select external reference mode (CONFIG.RD=1). Hardware note: REFCOMP must be tied to GND
+      for external reference operation.
+
+  disable-open-circuit:
+    type: boolean
+    required: false
+    description: Disable open-circuit detection (CONFIG.OC=1), suppresses FR0/FR1.
+
+  disable-power-limit:
+    type: boolean
+    required: false
+    description: Disable power-limit protection (CONFIG.PL=1), suppresses FR3 behavior.
+
+  disable-thermal-shutdown:
+    type: boolean
+    required: false
+    description: Disable thermal shutdown protection (CONFIG.TS=1), suppresses FR2 behavior.
+
+  spi-max-frequency:
+    default: 10000000          # conservative; device supports higher (see datasheet; depends on IOVCC)
+    description: Maximum SPI clock frequency in Hz.

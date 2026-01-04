@@ -1,0 +1,6 @@
+if BOARD_MECHANICALSENSOR
+
+config BT_CTLR
+	default BT
+
+endif # BOARD_MECHANICALSENSOR

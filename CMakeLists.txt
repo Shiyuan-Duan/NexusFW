@@ -49,6 +49,35 @@ elseif (CONFIG_APP_GFET_MEASURE)
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/gfet_app.c
       ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_gfet_srv.c
       ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
+elseif (CONFIG_APP_MLX_DEMO)
+  message(STATUS "Testing MLX sensor")
+  set(APP_SPECIFIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/mlx_app.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_mlx_srv.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
+
+elseif (CONFIG_APP_CACHEXIA_CURRENT_DEVICE)
+  message(STATUS "Cachexia Current Source Device")
+  set(APP_SPECIFIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/cachexia_cs_app.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/app/cachexia_cs_app_diag.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/app/mux_probe_app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_cachexia_cs_srv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
+
+elseif (CONFIG_APP_EXG_DEVICE)
+  message(STATUS "Testing exg sensor")
+  set(APP_SPECIFIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/max30001_stream_app.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_max30001_stream_srv.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
+
+elseif (CONFIG_APP_MECHANICAL_SENSOR)
+  message(STATUS "Testing Dual Mechanical Sensor")
+  set(APP_SPECIFIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/mlx90397_dual_app.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_mlx97_srv.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
 else()
   message(STATUS "No app variant selected; defaulting to STIM_DEMO")
   set(APP_SPECIFIC

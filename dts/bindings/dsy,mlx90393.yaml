@@ -1,0 +1,16 @@
+description: Melexis MLX90393 Triaxis magnetic sensor (I2C mode)
+
+compatible: "dsy,mlx90393"
+
+include: i2c-device.yaml
+
+properties:
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: Optional interrupt pin
+
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: Optional reset pin (usually unused)

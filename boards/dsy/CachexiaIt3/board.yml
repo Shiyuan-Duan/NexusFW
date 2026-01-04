@@ -1,0 +1,5 @@
+board:
+  name: CachexiaIt3
+  vendor: DSY
+  socs:
+    - name: nrf52840

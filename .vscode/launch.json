@@ -1,0 +1,12 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "nrf-connect",
+			"request": "launch",
+			"name": "Launch build_cachexia_cs",
+			"config": "${workspaceFolder}/build_cachexia_cs",
+			"runToEntryPoint": "main"
+		}
+	]
+}

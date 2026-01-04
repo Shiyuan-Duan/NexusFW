@@ -2,6 +2,7 @@
  * based on BLE service state. Do not modify main.c; this thread is started
  * here with K_THREAD_DEFINE.
  */
+//cachexia_app.c
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -10,6 +11,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/uuid.h>
+
 
 #include "ble_adv_core.h"
 

@@ -4,6 +4,7 @@
  *  - Characteristic 3: Battery (float32, read-only), placeholder 4.2f
  *  Uses AD5689 channel A (single-channel behavior) only.
  */
+// ble_cachexia_srv.c
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>

@@ -1,0 +1,5 @@
+board:
+  name: MechanicalSensor
+  vendor: DSY
+  socs:
+    - name: nrf52840

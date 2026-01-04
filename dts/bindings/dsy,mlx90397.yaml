@@ -1,0 +1,19 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: Melexis MLX90397 Triaxis magnetic sensor (I2C mode)
+
+compatible: "dsy,mlx90397"
+
+include: i2c-device.yaml
+
+properties:
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: Optional DRDY/INT pin
+
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: Optional reset pin (if wired on the board)

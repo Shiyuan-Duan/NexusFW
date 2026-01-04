@@ -1,5 +1,5 @@
 /*  GFET BLE GATT Service — notify-only streaming of gfet_sample */
-
+// ble_gfet_srv.c
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/sys/byteorder.h>
@@ -17,9 +17,9 @@ static atomic_t running = ATOMIC_INIT(0);
 static uint8_t ctrl_cached; /* mirrors last written control value for READ back */
 static struct gfet_cfg g_cfg = {
     .v_start_mV = 200,
-    .v_stop_mV = 1600,
+    .v_stop_mV = 1200,
     .v_step_mV = 5,
-    .dwell_ms = 50,
+    .dwell_ms = 10,
     .avg_N = 4,
 };
 

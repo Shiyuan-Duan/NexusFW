@@ -424,9 +424,7 @@ static int api_set_vgs(const struct device *dev, int32_t mv)
     k_mutex_lock(&d->lock, K_FOREVER);
     d->vgs_mv = mv;
 
-    (void)lprefs_enable(dev);
-    (void)lpdac_cfg_transfer(dev);
-    (void)lpdac_route_transfer(dev);
+
 
     uint32_t vzero_mv = d->vzero_mv ? (uint32_t)d->vzero_mv : 30u;
     uint8_t  vzero6   = vzero_code_from_mV(vzero_mv);
@@ -468,6 +466,14 @@ static int api_lptia_cfg(const struct device *dev, int32_t vzero_mV, uint32_t rt
     uint8_t vzero6 = vzero_code_from_mV((uint32_t)vzero_mV);
     uint16_t vbias12 = (uint16_t)(cur & 0x0FFFu);
     (void)ad5941_reg_write(dev, REG_LPDACDAT0, lpdac_pack(vzero6, vbias12));
+
+    (void)reg_update(dev, REG_AFECON,
+        AFECON_ADCEN | AFECON_ADCCONVEN | AFECON_SINC2EN,
+        AFECON_ADCEN | AFECON_ADCCONVEN | AFECON_SINC2EN);
+
+    (void)ad5941_reg_write(dev, REG_REPEATADCCNV, (1u << 0) | (1u << 4)); /* EN_P=1, NUM=1 */
+    (void)ad5941_reg_write(dev, REG_INTCCLR, INTCFLAG_SINC2_RDY);
+
     k_mutex_unlock(&d->lock);
     return 0;
 }
@@ -479,13 +485,13 @@ static int api_read_current(const struct device *dev, int32_t *nA)
     k_mutex_lock(&d->lock, K_FOREVER);
 
     /* Enable ADC + conversions + Sinc2 path */
-    (void)reg_update(dev, REG_AFECON, AFECON_ADCEN,     AFECON_ADCEN);
-    (void)reg_update(dev, REG_AFECON, AFECON_ADCCONVEN, AFECON_ADCCONVEN);
-    (void)reg_update(dev, REG_AFECON, AFECON_SINC2EN,   AFECON_SINC2EN);
+    // (void)reg_update(dev, REG_AFECON, AFECON_ADCEN,     AFECON_ADCEN);
+    // (void)reg_update(dev, REG_AFECON, AFECON_ADCCONVEN, AFECON_ADCCONVEN);
+    // (void)reg_update(dev, REG_AFECON, AFECON_SINC2EN,   AFECON_SINC2EN);
 
     /* Repeat conversions: EN_P=1, NUM=1 (NUM must be nonzero) */
-    uint32_t rpt = (1u << 0) | (1u << 4);
-    (void)ad5941_reg_write(dev, REG_REPEATADCCNV, rpt);
+    // uint32_t rpt = (1u << 0) | (1u << 4);
+    // (void)ad5941_reg_write(dev, REG_REPEATADCCNV, rpt);
 
     /* Poll “Sinc2 filter result ready” (FLAG2) and clear with INTCCLR (W1C).
      * With OSR=22 and Sinc3 bypassed, ready latency is very small. */
@@ -577,6 +583,11 @@ static int ad5941_init(const struct device *dev)
 
     /* Dump once at init, too */
     ad5941_dbg_dump(dev, "INIT");
+
+
+    (void)lprefs_enable(dev);
+    (void)lpdac_cfg_transfer(dev);
+    (void)lpdac_route_transfer(dev);
 
     return 0;
 }
