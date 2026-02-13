@@ -15,21 +15,46 @@
 LOG_MODULE_REGISTER(mlx97_app, CONFIG_LOG_DEFAULT_LEVEL);
 
 /* ======================= MLX90397 registers / bits ======================= */
-#define MLX97_REG_STAT1   0x00
-#define MLX97_REG_X_L     0x01
-#define MLX97_REG_STAT2   0x07
-#define MLX97_REG_CTRL    0x0E
+#define MLX97_REG_STAT1      0x00
+#define MLX97_REG_X_L        0x01
+#define MLX97_REG_STAT2      0x07
+#define MLX97_REG_CTRL       0x0E
 
-#define MLX97_STAT1_DRDY  BIT(0)
+/* Sensitivity-related registers */
+#define MLX97_REG_CUST_CTRL2     0x0F  /* RANGE_SEL */
+#define MLX97_REG_OSR_DIG_FILT   0x14  /* OSR_HALL + DIG_FILT_XY */
+#define MLX97_REG_CUST_CTRL      0x15  /* DIG_FILT_Z */
+
+#define MLX97_STAT1_DRDY     BIT(0)
 
 /* CTRL bits */
-#define MLX97_CTRL_X_EN   BIT(4)
-#define MLX97_CTRL_Y_EN   BIT(5)
-#define MLX97_CTRL_Z_EN   BIT(6)
+#define MLX97_CTRL_X_EN      BIT(4)
+#define MLX97_CTRL_Y_EN      BIT(5)
+#define MLX97_CTRL_Z_EN      BIT(6)
 
 /* CTRL.MODE[3:0] values */
-#define MLX97_MODE_POWERDOWN  0
-#define MLX97_MODE_CONT_100HZ 5
+#define MLX97_MODE_POWERDOWN     0
+#define MLX97_MODE_CONT_500HZ    5
+#define MLX97_MODE_CONT_500HZ    11
+
+/* ---- Bitfields for "most sensitive" defaults ----
+ * Assumed mapping:
+ * - CUST_CTRL2(0x0F): RANGE_SEL[2:0]
+ * - OSR_DIG_FILT(0x14):
+ *     - bit7   OSR_HALL
+ *     - bit6   OSR_TEMP
+ *     - bit5:3 DIG_FILT_HALL_XY[2:0]
+ *     - bit2:0 DIG_FILT_TEMP[2:0]
+ * - CUST_CTRL(0x15): DIG_FILT_HALL_Z[2:0] (plus DNC / T_COMP_EN bits)
+ */
+#define MLX97_RANGE_SEL_MASK     (0x07u)
+#define MLX97_DIG_FILT_XY_SHIFT  3
+#define MLX97_DIG_FILT_XY_MASK   (0x07u << MLX97_DIG_FILT_XY_SHIFT)
+#define MLX97_OSR_HALL_BIT       BIT(7)
+#define MLX97_OSR_TEMP_BIT       BIT(6)
+#define MLX97_DIG_FILT_TEMP_SHIFT 0
+#define MLX97_DIG_FILT_TEMP_MASK  (0x07u << MLX97_DIG_FILT_TEMP_SHIFT)
+#define MLX97_DIG_FILT_Z_MASK    (0x07u)
 
 static int mlx97_read_regs(const struct i2c_dt_spec *bus,
                            uint8_t start_reg, uint8_t *buf, size_t len)
@@ -37,10 +62,24 @@ static int mlx97_read_regs(const struct i2c_dt_spec *bus,
     return i2c_write_read_dt(bus, &start_reg, 1, buf, len);
 }
 
+static int mlx97_read_u8(const struct i2c_dt_spec *bus, uint8_t reg, uint8_t *val)
+{
+    return mlx97_read_regs(bus, reg, val, 1);
+}
+
 static int mlx97_write_u8(const struct i2c_dt_spec *bus, uint8_t reg, uint8_t val)
 {
     uint8_t tx[2] = { reg, val };
     return i2c_write_dt(bus, tx, sizeof(tx));
+}
+
+static int mlx97_update_u8(const struct i2c_dt_spec *bus, uint8_t reg, uint8_t mask, uint8_t value)
+{
+    uint8_t v = 0;
+    int ret = mlx97_read_u8(bus, reg, &v);
+    if (ret < 0) return ret;
+    v = (uint8_t)((v & ~mask) | (value & mask));
+    return mlx97_write_u8(bus, reg, v);
 }
 
 static int mlx97_set_mode_xyz(const struct i2c_dt_spec *bus, uint8_t mode,
@@ -57,6 +96,55 @@ static int mlx97_set_mode_xyz(const struct i2c_dt_spec *bus, uint8_t mode,
     if (ret < 0) return ret;
     k_sleep(K_MSEC(2));
     return mlx97_write_u8(bus, MLX97_REG_CTRL, ctrl);
+}
+
+/* Apply "default most sensitive" config:
+ * - RANGE_SEL=0 (min range)
+ * - OSR_HALL=1 (64)
+ * - DIG_FILT_XY=7 (max)
+ * - DIG_FILT_Z=7 (max)
+ *
+ * NOTE: This may reduce max achievable ODR.
+ */
+static int mlx97_apply_500hz_txyz_tc(const struct i2c_dt_spec *bus,
+                                        bool x, bool y, bool z,
+                                        uint8_t final_mode)
+{
+    int ret;
+
+    /* 1) Powerdown first (safe config change) */
+    ret = mlx97_set_mode_xyz(bus, MLX97_MODE_POWERDOWN, x, y, z);
+    if (ret < 0) return ret;
+    k_sleep(K_MSEC(2));
+
+    /* 2) CUST_CTRL2: RANGE_SEL[2:0] = 3 (XY=50mT, Z=50mT default) */
+    ret = mlx97_update_u8(bus, MLX97_REG_CUST_CTRL2, MLX97_RANGE_SEL_MASK, 0u);
+    if (ret < 0) return ret;
+
+    /* 3) OSR_DIG_FILT (0x14): OSR_HALL=1, OSR_TEMP=1, DIG_FILT_XY=0, DIG_FILT_TEMP=1 */
+    ret = mlx97_update_u8(bus, MLX97_REG_OSR_DIG_FILT, MLX97_OSR_HALL_BIT, MLX97_OSR_HALL_BIT);
+    if (ret < 0) return ret;
+
+    ret = mlx97_update_u8(bus, MLX97_REG_OSR_DIG_FILT, MLX97_OSR_TEMP_BIT, MLX97_OSR_TEMP_BIT);
+    if (ret < 0) return ret;
+
+    ret = mlx97_update_u8(bus, MLX97_REG_OSR_DIG_FILT, MLX97_DIG_FILT_XY_MASK,
+                          (uint8_t)(0u << MLX97_DIG_FILT_XY_SHIFT));
+    if (ret < 0) return ret;
+
+    ret = mlx97_update_u8(bus, MLX97_REG_OSR_DIG_FILT, MLX97_DIG_FILT_TEMP_MASK,
+                          (uint8_t)(1u << MLX97_DIG_FILT_TEMP_SHIFT));
+    if (ret < 0) return ret;
+
+    /* 4) CUST_CTRL (0x15): keep DNC bits, enable temp compensation, set DIG_FILT_Z=1 */
+    ret = mlx97_update_u8(bus, MLX97_REG_CUST_CTRL, BIT(5), BIT(5)); /* T_COMP_EN=1 */
+    if (ret < 0) return ret;
+
+    ret = mlx97_update_u8(bus, MLX97_REG_CUST_CTRL, MLX97_DIG_FILT_Z_MASK, 1u);
+    if (ret < 0) return ret;
+
+    /* 5) Enter final mode */
+    return mlx97_set_mode_xyz(bus, final_mode, x, y, z);
 }
 
 static int mlx97_wait_drdy(const struct i2c_dt_spec *bus, int32_t timeout_ms, uint8_t *st1_out)
@@ -107,13 +195,6 @@ static const struct bt_le_adv_param adv_param = BT_LE_ADV_PARAM_INIT(
     BT_GAP_ADV_FAST_INT_MAX_1,
     NULL);
 
-/*
- * Improve macOS/CoreBluetooth discoverability:
- * - Use fast advertising interval
- * - Put 128-bit primary service UUID directly in advertising data (AD), not only in scan response
- * - Use a shortened name in AD to keep total payload <= 31 bytes
- * - Provide complete name in scan response (optional)
- */
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     BT_DATA(BT_DATA_NAME_SHORTENED, DEVICE_NAME, MIN(DEVICE_NAME_LEN, 8)),
@@ -157,7 +238,7 @@ static const struct i2c_dt_spec mlx1 = I2C_DT_SPEC_GET(MLX1_NODE);
 
 /* ======================= Sampling params ======================= */
 #define APP_PRINT_EVERY 20
-#define APP_PERIOD_MS   10
+#define APP_PERIOD_MS   0  /* 0 = no extra delay; mlx97_read_sample waits DRDY */
 
 static void mlx97_thread(void *a, void *b, void *c)
 {
@@ -175,8 +256,14 @@ static void mlx97_thread(void *a, void *b, void *c)
     printk("MLX97: bus0=%s addr=0x%02x | bus1=%s addr=0x%02x\n",
            mlx0.bus->name, mlx0.addr, mlx1.bus->name, mlx1.addr);
 
-    (void)mlx97_set_mode_xyz(&mlx0, MLX97_MODE_CONT_100HZ, true, true, true);
-    (void)mlx97_set_mode_xyz(&mlx1, MLX97_MODE_CONT_100HZ, true, true, true);
+    /* ✅ Default: apply "most sensitive" config BEFORE starting continuous mode */
+    int r;
+
+    r = mlx97_apply_500hz_txyz_tc(&mlx0, true, true, true, MLX97_MODE_CONT_500HZ);
+    printk("mlx0 sensitive cfg: %d\n", r);
+
+    r = mlx97_apply_500hz_txyz_tc(&mlx1, true, true, true, MLX97_MODE_CONT_500HZ);
+    printk("mlx1 sensitive cfg: %d\n", r);
 
     LOG_INF("MLX97 app thread started, waiting for CTRL start...");
 
@@ -202,7 +289,7 @@ static void mlx97_thread(void *a, void *b, void *c)
                        p1.x, p1.y, p1.z, p1.stat2);
             }
 
-            k_sleep(K_MSEC(APP_PERIOD_MS));
+            if (APP_PERIOD_MS > 0) { k_sleep(K_MSEC(APP_PERIOD_MS)); } else { k_yield(); }
         }
 
         LOG_INF("MLX97 streaming stopped");

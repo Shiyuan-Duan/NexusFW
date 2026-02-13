@@ -85,3 +85,21 @@
 	};
 };
 
+&spi1 {
+    status = "okay";
+    pinctrl-names = "default", "sleep";
+    pinctrl-0 = <&spi1_default>;
+    pinctrl-1 = <&spi1_sleep>;
+
+    /* imu_cs = P1.08 -> gpio1 pin 8 */
+    cs-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>;
+
+    bmi2700: bmi270@0 {
+        compatible = "bosch,bmi270";
+        reg = <0>;
+        spi-max-frequency = <8000000>;
+
+        /* int1: P0.04, int2: P1.09 */
+        irq-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>, <&gpio1 9 GPIO_ACTIVE_HIGH>;
+    };
+};

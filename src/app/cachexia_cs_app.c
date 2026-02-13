@@ -1,26 +1,21 @@
-/* Cachexia current-source application thread:
- * - Drives AD5778R OUT0 current amplitude (0..100% -> 16-bit code)
+/* ========================= cachexia_cs_app.c =========================
+ * Cachexia current-source application thread:
+ * - Drives AD5778R OUT0 current amplitude using *AmplitudeCode* (u16 over BLE)
  * - Generates biphasic stimulation by toggling ADG5436 IN1/IN2 (both tied to P0.14)
  * - Default frequency 5 Hz, adjustable over BLE (Hz, integer)
  *
- * Hardware assumption for true biphasic (electrode swap) with IN1==IN2:
- *   - D1 -> Electrode A
- *   - D2 -> Electrode B
- *   - S1A -> DAC OUT (current source)
- *   - S1B -> GND
- *   - S2A -> GND
- *   - S2B -> DAC OUT
- *
- * With ADG5436 truth table: IN=1 => SxA ON, IN=0 => SxB ON. :contentReference[oaicite:3]{index=3}
- * So:
- *   IN=1 -> A gets DAC, B gets GND
- *   IN=0 -> A gets GND, B gets DAC  (current direction reverses through the load)
+ * + IMU (BMI270) streaming:
+ *   - Periodically reads accel/gyro via Zephyr sensor API
+ *   - Streams 16-byte payload over BLE notify (Cachexia IMU characteristic)
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/byteorder.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -37,32 +32,33 @@ LOG_MODULE_REGISTER(cachexia_cs_app, CONFIG_LOG_DEFAULT_LEVEL);
 /* ---- AD5778R usage ---- */
 #define CACHEXIA_CS_DAC_CH 0
 
-/* Choose a default span for your stim system.
- * You can change this to AD5778R_SPAN_50_MA / 100mA / 200mA / 300mA, etc.
- */
+/* Choose a default span for your stim system. */
 #define CACHEXIA_CS_DEFAULT_SPAN AD5778R_SPAN_25_MA
 
 /* ---- ADG5436 control GPIO: both IN1 and IN2 tied to P0.14 ---- */
 #define ADG5436_GPIO_NODE DT_NODELABEL(gpio0)
 #define ADG5436_CTRL_PIN  14
 
-/* Optional interphase “quiet” gap (microseconds).
- * If nonzero, we momentarily set DAC code to 0 around the switch toggle.
- * Default 0 keeps the output current constant and only swaps electrodes.
- */
+/* Optional interphase “quiet” gap (microseconds). */
 #define INTERPHASE_GAP_US 0
+
+/* ---- BMI270 IMU streaming (polling) ---- */
+#define CACHEXIA_IMU_STREAM_HZ        50u
+#define CACHEXIA_IMU_STREAM_PERIOD_MS (1000u / CACHEXIA_IMU_STREAM_HZ)
+/* When nobody subscribes to IMU notifications, sample less often to save power */
+#define CACHEXIA_IMU_IDLE_PERIOD_MS   200u
 
 static const struct device *const ad5778r_dev = DEVICE_DT_GET_ONE(dsy_ad5778r);
 static const struct device *const gpio0_dev = DEVICE_DT_GET(ADG5436_GPIO_NODE);
 
-static uint16_t map_pct_to_code(uint8_t pct)
-{
-	if (pct >= 100) {
-		return 0xFFFF;
-	}
-	uint32_t code = ((uint32_t)pct * 65535u) / 100u;
-	return (uint16_t)code;
-}
+/* BMI270 device (only compiled if a bosch,bmi270 node exists and is "okay") */
+#if DT_HAS_COMPAT_STATUS_OKAY(bosch_bmi270)
+#define CACHEXIA_HAVE_BMI270 1
+static const struct device *const bmi270_dev =
+	DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(bosch_bmi270));
+#else
+#define CACHEXIA_HAVE_BMI270 0
+#endif
 
 static int adg5436_init(void)
 {
@@ -70,7 +66,6 @@ static int adg5436_init(void)
 		return -ENODEV;
 	}
 
-	/* ADG5436 inputs are 3V logic compatible (VINH min 2.0V, VINL max 0.8V). :contentReference[oaicite:4]{index=4} */
 	int ret = gpio_pin_configure(gpio0_dev, ADG5436_CTRL_PIN, GPIO_OUTPUT_INACTIVE);
 	if (ret != 0) {
 		return ret;
@@ -120,8 +115,8 @@ static void cachexia_cs_thread(void *a, void *b, void *c)
 
 	for (;;) {
 		if (ble_cachexia_cs_get_switch()) {
-			uint8_t pct = ble_cachexia_cs_get_amplitude_percent();
-			uint16_t code = map_pct_to_code(pct);
+			/* NEW: finest control (16-bit DAC code) */
+			uint16_t code = ble_cachexia_cs_get_amplitude_code();
 
 			uint16_t freq_hz = ble_cachexia_cs_get_frequency_hz();
 			if (freq_hz < 1) {
@@ -134,15 +129,15 @@ static void cachexia_cs_thread(void *a, void *b, void *c)
 				phase_in = 0;
 				adg5436_set_in(phase_in);
 
-				/* Set span to your chosen current range and power up */
-				(void)ad5778r_set_span(ad5778r_dev, CACHEXIA_CS_DAC_CH, CACHEXIA_CS_DEFAULT_SPAN);
+				(void)ad5778r_set_span(ad5778r_dev, CACHEXIA_CS_DAC_CH,
+						       CACHEXIA_CS_DEFAULT_SPAN);
 
-				/* Set initial current code */
 				(void)ad5778r_write(ad5778r_dev, CACHEXIA_CS_DAC_CH, code);
 				last_code = code;
 				last_freq = freq_hz;
 
-				LOG_INF("Stim ON: span=%u code=0x%04x freq=%uHz", (unsigned)CACHEXIA_CS_DEFAULT_SPAN,
+				LOG_INF("Stim ON: span=%u code=0x%04x freq=%uHz",
+					(unsigned)CACHEXIA_CS_DEFAULT_SPAN,
 					(unsigned)code, (unsigned)freq_hz);
 			}
 
@@ -155,7 +150,7 @@ static void cachexia_cs_thread(void *a, void *b, void *c)
 			/* Compute half-period in ms: T/2 = 1000 / (2*Hz) */
 			uint32_t half_period_ms = 1000u / (2u * (uint32_t)freq_hz);
 			if (half_period_ms == 0) {
-				half_period_ms = 1; /* guard for high freq values */
+				half_period_ms = 1;
 			}
 
 			/* Toggle phase (swap electrodes through ADG5436) */
@@ -174,13 +169,10 @@ static void cachexia_cs_thread(void *a, void *b, void *c)
 			k_sleep(K_MSEC(half_period_ms));
 		} else {
 			if (active) {
-				/* Safe off: set span to High-Z + power down.
-				 * Datasheet: to fully turn off output, High-Z span is recommended. :contentReference[oaicite:5]{index=5}
-				 */
-				(void)ad5778r_set_span(ad5778r_dev, CACHEXIA_CS_DAC_CH, AD5778R_SPAN_HIGH_Z);
+				(void)ad5778r_set_span(ad5778r_dev, CACHEXIA_CS_DAC_CH,
+						       AD5778R_SPAN_HIGH_Z);
 				(void)ad5778r_power_down(ad5778r_dev, CACHEXIA_CS_DAC_CH);
 
-				/* Put switch in a defined state */
 				phase_in = 0;
 				adg5436_set_in(phase_in);
 
@@ -197,6 +189,119 @@ static void cachexia_cs_thread(void *a, void *b, void *c)
 /* Give stim thread a bit lower priority than BLE adv thread if you want */
 K_THREAD_DEFINE(cachexia_cs_t, 1024, cachexia_cs_thread, NULL, NULL, NULL,
 		2 /*prio*/, 0, 0);
+
+/* ---- BMI270 IMU polling + BLE streaming thread ---- */
+#if CACHEXIA_HAVE_BMI270
+
+static int16_t clamp_i64_to_i16(int64_t x)
+{
+	if (x > (int64_t)INT16_MAX) {
+		return INT16_MAX;
+	}
+	if (x < (int64_t)INT16_MIN) {
+		return INT16_MIN;
+	}
+	return (int16_t)x;
+}
+
+static int16_t accel_ms2_to_mg(const struct sensor_value *v)
+{
+	int64_t micro = (int64_t)v->val1 * 1000000LL + (int64_t)v->val2;
+
+	const int64_t denom = 9806650LL; /* 9.80665 * 1e6 */
+	int64_t num = micro * 1000LL;
+
+	int64_t mg = (num >= 0) ? ((num + denom / 2) / denom)
+				: ((num - denom / 2) / denom);
+
+	return clamp_i64_to_i16(mg);
+}
+
+static int16_t gyro_rads_to_dps10(const struct sensor_value *v)
+{
+	int64_t micro = (int64_t)v->val1 * 1000000LL + (int64_t)v->val2;
+
+	const int64_t k_num = 572957795LL;
+	const int64_t denom = 1000000000000LL;
+
+	int64_t num = micro * k_num;
+	int64_t dps10 = (num >= 0) ? ((num + denom / 2) / denom)
+				   : ((num - denom / 2) / denom);
+
+	return clamp_i64_to_i16(dps10);
+}
+
+static void cachexia_imu_thread(void *a, void *b, void *c)
+{
+	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+
+	if (!device_is_ready(bmi270_dev)) {
+		LOG_ERR("BMI270 device not ready");
+		return;
+	}
+
+	struct sensor_value odr = { .val1 = 100, .val2 = 0 };
+	(void)sensor_attr_set(bmi270_dev, SENSOR_CHAN_ACCEL_XYZ,
+			      SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
+	(void)sensor_attr_set(bmi270_dev, SENSOR_CHAN_GYRO_XYZ,
+			      SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
+
+	bool warned_fetch = false;
+	bool warned_chan  = false;
+
+	for (;;) {
+		int rc = sensor_sample_fetch(bmi270_dev);
+		if (rc == 0) {
+			struct sensor_value acc[3];
+			struct sensor_value gyr[3];
+
+			int rc_a = sensor_channel_get(bmi270_dev, SENSOR_CHAN_ACCEL_XYZ, acc);
+			int rc_g = sensor_channel_get(bmi270_dev, SENSOR_CHAN_GYRO_XYZ,  gyr);
+
+			if (rc_a == 0 && rc_g == 0) {
+				int16_t ax_mg    = accel_ms2_to_mg(&acc[0]);
+				int16_t ay_mg    = accel_ms2_to_mg(&acc[1]);
+				int16_t az_mg    = accel_ms2_to_mg(&acc[2]);
+
+				int16_t gx_dps10 = gyro_rads_to_dps10(&gyr[0]);
+				int16_t gy_dps10 = gyro_rads_to_dps10(&gyr[1]);
+				int16_t gz_dps10 = gyro_rads_to_dps10(&gyr[2]);
+
+				uint8_t payload[CACHEXIA_IMU_PAYLOAD_LEN];
+
+				sys_put_le32(k_uptime_get_32(), &payload[0]);
+				sys_put_le16((uint16_t)ax_mg,    &payload[4]);
+				sys_put_le16((uint16_t)ay_mg,    &payload[6]);
+				sys_put_le16((uint16_t)az_mg,    &payload[8]);
+				sys_put_le16((uint16_t)gx_dps10, &payload[10]);
+				sys_put_le16((uint16_t)gy_dps10, &payload[12]);
+				sys_put_le16((uint16_t)gz_dps10, &payload[14]);
+
+				(void)ble_cachexia_cs_imu_stream(payload, sizeof(payload));
+			} else if (!warned_chan) {
+				warned_chan = true;
+				LOG_WRN("BMI270 channel_get failed (acc=%d gyro=%d)", rc_a, rc_g);
+			}
+		} else if (!warned_fetch) {
+			warned_fetch = true;
+			LOG_WRN("BMI270 sample_fetch failed (%d)", rc);
+		}
+
+		uint32_t period_ms = ble_cachexia_cs_imu_notify_is_enabled() ?
+				     CACHEXIA_IMU_STREAM_PERIOD_MS :
+				     CACHEXIA_IMU_IDLE_PERIOD_MS;
+
+		if (period_ms == 0) {
+			period_ms = 1;
+		}
+		k_sleep(K_MSEC(period_ms));
+	}
+}
+
+K_THREAD_DEFINE(cachexia_imu_t, 1024, cachexia_imu_thread, NULL, NULL, NULL,
+		3 /*prio*/, 0, 0);
+
+#endif /* CACHEXIA_HAVE_BMI270 */
 
 /* ---- BLE advertising profile/thread (same pattern as your original) ---- */
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME

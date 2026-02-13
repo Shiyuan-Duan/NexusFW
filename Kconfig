@@ -47,6 +47,10 @@ config APP_MECHANICAL_SENSOR
     bool "Dual MLX Mechanical Sensor"
     help
       Dual MLX Mechanical Sensor
+config APP_CS_FG
+    bool "Current source function generator"
+    help
+       Current source function generator 
 config APP_MLX_DEMO
     bool "MLX Demo"
     help

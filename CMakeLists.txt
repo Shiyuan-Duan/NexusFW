@@ -78,6 +78,12 @@ elseif (CONFIG_APP_MECHANICAL_SENSOR)
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/mlx90397_dual_app.c
       ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_mlx97_srv.c
       ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
+elseif (CONFIG_APP_CS_FG)
+  message(STATUS "Testing Function Generator")
+  set(APP_SPECIFIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/cachexia_fg_app.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_cachexia_fg_srv.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/ble/ble_adv_core.c)
 else()
   message(STATUS "No app variant selected; defaulting to STIM_DEMO")
   set(APP_SPECIFIC
